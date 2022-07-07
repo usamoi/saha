@@ -12,6 +12,7 @@ wget https://raw.githubusercontent.com/fivethirtyeight/uber-tlc-foil-response/63
 wget https://raw.githubusercontent.com/fivethirtyeight/uber-tlc-foil-response/63bb878b76f47f69b4527d50af57aac26dead983/uber-trip-data/uber-raw-data-jun14.csv
 wget https://raw.githubusercontent.com/fivethirtyeight/uber-tlc-foil-response/63bb878b76f47f69b4527d50af57aac26dead983/uber-trip-data/uber-raw-data-may14.csv
 wget https://raw.githubusercontent.com/fivethirtyeight/uber-tlc-foil-response/63bb878b76f47f69b4527d50af57aac26dead983/uber-trip-data/uber-raw-data-sep14.csv
+cd ..
 mkdir Wiki
 cd Wiki
 wget https://dumps.wikimedia.org/other/pagecounts-raw/2016/2016-01/pagecounts-20160101-000000.gz
@@ -39,6 +40,7 @@ wget https://dumps.wikimedia.org/other/pagecounts-raw/2016/2016-01/pagecounts-20
 wget https://dumps.wikimedia.org/other/pagecounts-raw/2016/2016-01/pagecounts-20160101-220000.gz
 wget https://dumps.wikimedia.org/other/pagecounts-raw/2016/2016-01/pagecounts-20160101-230000.gz
 gzip -d ./*
+cd ..
 ```
 
 [RecipeNLP](https://recipenlg.cs.put.poznan.pl/dataset) should be downloaded manually since there is a Captcha challenge. It should be named "Recipe.csv".

@@ -1,0 +1,8 @@
+#! /bin/bash
+
+cd $(dirname '$0')
+(cd ./benchmarker-cxx; make build-release)
+(cd ./benchmarker-rust; cargo build --release)
+echo "subject,dataset,time_build,time_probe,time_foreach,memory,count,count_distinct"
+./benchmarker-cxx/target/release/main --path "../datasets" | tail -n 8
+./benchmarker-rust/target/release/main --path "../datasets" | tail -n 12

@@ -1,14 +1,11 @@
+use benchmarker::measure_memory::MeasureMemory;
+use benchmarker::measure_time::measure_time;
 use benchmarker::subject::Subject;
 use std::error::Error;
 use std::io::Read;
-use std::time::Instant;
 
-// unit: ms
-fn scoped<F: FnOnce()>(f: F) -> usize {
-    let t = Instant::now();
-    f();
-    t.elapsed().as_millis().try_into().unwrap()
-}
+#[global_allocator]
+static MEASURE_MEMORY: MeasureMemory = MeasureMemory::new();
 
 fn read<F: FnMut(Vec<Box<[u8]>>)>(
     dataset_files: &[String],
@@ -62,14 +59,14 @@ fn solver<S: Subject>(manifest: &Manifest) -> Result<(), Box<dyn Error>> {
         let mut time_foreach = 0usize;
         let mut subject = S::new();
         read(files, |strings| {
-            time_build += scoped(|| {
+            time_build += measure_time(|| {
                 for string in strings {
-                    subject.build(string, || 0, |x| *x = *x + 1);
+                    subject.build(string, || 1, |x| *x = *x + 1);
                 }
             });
         })?;
         read(files, |strings| {
-            time_probe += scoped(|| {
+            time_probe += measure_time(|| {
                 for string in strings.iter() {
                     subject.probe(string).expect("incorrect implement");
                 }
@@ -77,13 +74,15 @@ fn solver<S: Subject>(manifest: &Manifest) -> Result<(), Box<dyn Error>> {
         })?;
         let mut count = 0u64;
         let mut count_distinct = 0u64;
-        time_foreach += scoped(|| {
+        time_foreach += measure_time(|| {
             subject.foreach(|(_, v)| {
                 count += 1;
                 count_distinct += v;
             })
         });
-        let memory = subject.malloc_size_of();
+        let before_dropping = MEASURE_MEMORY.measure();
+        drop(subject);
+        let memory = before_dropping - MEASURE_MEMORY.measure();
         println!(
             "{},{name},{time_build},{time_probe},{time_foreach},{memory},{count},{count_distinct}",
             S::NAME
@@ -114,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let manifest = serde_json::from_str::<Manifest>(&std::fs::read_to_string("manifest.json")?)?;
     println!("subject,dataset,time_build,time_probe,time_foreach,memory,count,count_distinct");
-    solver::<common_hashtable::TwoLevelHashMap<Option<Box<[u8]>>, u64>>(&manifest)?;
+    solver::<common_hashtable::HashMap<Option<Box<[u8]>>, u64>>(&manifest)?;
     solver::<hashbrown::HashMap<Box<[u8]>, u64>>(&manifest)?;
     solver::<hashtable::hashtable::Hashtable>(&manifest)?;
     Ok(())

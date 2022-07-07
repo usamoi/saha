@@ -1,5 +1,5 @@
+use common_hashtable::HashMap as DatabendMap;
 use common_hashtable::HashTableEntity;
-use common_hashtable::TwoLevelHashMap as DatabendMap;
 use hashbrown::hash_map::EntryRef;
 use hashbrown::HashMap as HashbrownMap;
 use hashtable::hashtable::Hashtable as RefinedHashtable;
@@ -10,7 +10,6 @@ pub trait Subject {
     fn build(&mut self, key: Box<[u8]>, insert: impl FnMut() -> u64, update: impl FnMut(&mut u64));
     fn probe(&self, key: &Box<[u8]>) -> Option<u64>;
     fn foreach<F: FnMut((&[u8], u64))>(&self, f: F);
-    fn malloc_size_of(&self) -> usize;
 }
 
 impl Subject for HashbrownMap<Box<[u8]>, u64> {
@@ -42,10 +41,6 @@ impl Subject for HashbrownMap<Box<[u8]>, u64> {
     fn foreach<F: FnMut((&[u8], u64))>(&self, f: F) {
         self.iter().map(|(x, y)| (x.as_ref(), *y)).for_each(f)
     }
-
-    fn malloc_size_of(&self) -> usize {
-        0
-    }
 }
 
 impl Subject for DatabendMap<Option<Box<[u8]>>, u64> {
@@ -62,7 +57,7 @@ impl Subject for DatabendMap<Option<Box<[u8]>>, u64> {
         mut update: impl FnMut(&mut u64),
     ) {
         let mut inserted = false;
-        let entity = self.insert_key(&Some(key), &mut inserted);
+        let entity = self.insert_key(Some(key), &mut inserted);
         if inserted {
             entity.set_value(insert());
         } else {
@@ -79,10 +74,6 @@ impl Subject for DatabendMap<Option<Box<[u8]>>, u64> {
         self.iter()
             .map(|e| (e.get_key().as_ref().unwrap().as_ref(), *e.get_mut_value()))
             .for_each(f)
-    }
-
-    fn malloc_size_of(&self) -> usize {
-        0
     }
 }
 
@@ -113,9 +104,5 @@ impl Subject for RefinedHashtable {
         self.iter()
             .map(|(k, v)| f((k.as_ref(), v)))
             .for_each(|()| ())
-    }
-
-    fn malloc_size_of(&self) -> usize {
-        0
     }
 }

@@ -42,3 +42,4 @@ pub type TwoLevelHashMap<Key, Value> =
 pub type HashMapIteratorKind<Key, Value> = HashTableIteratorKind<Key, KeyValueEntity<Key, Value>>;
 pub type HashMapKind<Key, Value> =
     HashTableKind<Key, KeyValueEntity<Key, Value>, SingleLevelGrower, TwoLevelGrower>;
+pub type UnsafeBytesRef = hash_table_key::UnsafeBytesRef;

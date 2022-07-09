@@ -155,10 +155,12 @@ fn solver_cxx(nlohmann::json manifest) {
         });
         u64 count = 0;
         u64 count_distinct = 0;
-        for (let[k, v] : subject) {
-            count += 1;
-            count_distinct += v;
-        }
+        time_foreach += measure_time([&] {
+            for (let[k, v] : subject) {
+                count += 1;
+                count_distinct += v;
+            }
+        });
         usize before_dropping = mock_std::usage();
         {
             auto _ = std::move(subject);
@@ -211,9 +213,11 @@ fn solver_clickhouse(nlohmann::json manifest) {
         });
         u64 count = 0;
         u64 count_distinct = 0;
-        subject.forEachValue([&](StringRef k, u64 v) {
-            count += 1;
-            count_distinct += v;
+        time_foreach += measure_time([&] {
+            subject.forEachValue([&](StringRef k, u64 v) {
+                count += 1;
+                count_distinct += v;
+            });
         });
         usize before_dropping = mock_std::usage();
         {
@@ -222,7 +226,7 @@ fn solver_clickhouse(nlohmann::json manifest) {
         }
         usize after_dropping = mock_std::usage();
         usize memory = before_dropping - after_dropping;
-        std::cout << "cxx," << name << ","
+        std::cout << "clickhouse," << name << ","
                   << time_build << ","
                   << time_probe << ","
                   << time_foreach << ","

@@ -9,5 +9,5 @@ build-debug:
 clean:
 	rm -rf ./target
 
-run: all
-	./target/benchmarker-cxx --path ../../datasets
+run: build-release
+	./target/release/main --path ../../datasets

@@ -12,17 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::hash::Hasher;
-
 use primitive_types::U256;
 use primitive_types::U512;
+use std::hash::Hasher;
 
-pub trait HashTableKeyable: Eq + Clone + Sized {
+pub trait HashTableKeyable: Eq + Sized {
     const BEFORE_EQ_HASH: bool;
 
     fn is_zero(&self) -> bool;
     fn fast_hash(&self) -> u64;
-    fn set_key(&mut self, new_value: Self);
+    fn set_key(&mut self, new_value: &Self);
 }
 
 macro_rules! primitive_hasher_impl {
@@ -47,8 +46,8 @@ macro_rules! primitive_hasher_impl {
             }
 
             #[inline(always)]
-            fn set_key(&mut self, new_value: $primitive_type) {
-                *self = new_value;
+            fn set_key(&mut self, new_value: &$primitive_type) {
+                *self = *new_value;
             }
         }
     };
@@ -82,8 +81,8 @@ impl HashTableKeyable for u128 {
         hash_value as u64
     }
     #[inline(always)]
-    fn set_key(&mut self, new_value: u128) {
-        *self = new_value;
+    fn set_key(&mut self, new_value: &u128) {
+        *self = *new_value;
     }
 }
 
@@ -98,8 +97,8 @@ impl HashTableKeyable for U256 {
         self.low_u128().fast_hash() ^ (*self >> 128).low_u128().fast_hash()
     }
     #[inline(always)]
-    fn set_key(&mut self, new_value: U256) {
-        *self = new_value;
+    fn set_key(&mut self, new_value: &U256) {
+        *self = *new_value;
     }
 }
 
@@ -117,31 +116,53 @@ impl HashTableKeyable for U512 {
             ^ (*self >> 384).low_u128().fast_hash()
     }
     #[inline(always)]
-    fn set_key(&mut self, new_value: U512) {
-        *self = new_value;
+    fn set_key(&mut self, new_value: &U512) {
+        *self = *new_value;
     }
 }
 
-impl HashTableKeyable for Option<Box<[u8]>> {
+#[derive(Debug, Clone, Copy)]
+pub struct UnsafeBytesRef(*const u8, usize);
+
+impl UnsafeBytesRef {
+    pub unsafe fn new(x: &[u8]) -> UnsafeBytesRef {
+        Self(x.as_ptr(), x.len())
+    }
+    pub fn as_slice(self) -> &'static [u8] {
+        unsafe { std::slice::from_raw_parts(self.0, self.1) }
+    }
+}
+
+impl PartialEq for UnsafeBytesRef {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.is_null() {
+            other.0.is_null()
+        } else {
+            !other.0.is_null() && self.as_slice() == other.as_slice()
+        }
+    }
+}
+
+impl Eq for UnsafeBytesRef {}
+
+impl HashTableKeyable for UnsafeBytesRef {
     const BEFORE_EQ_HASH: bool = true;
 
     fn is_zero(&self) -> bool {
-        self.is_none()
+        self.0.is_null()
     }
 
     fn fast_hash(&self) -> u64 {
-        if let Some(x) = self {
+        if !self.0.is_null() {
             let mut hasher = ahash::AHasher::default();
-            hasher.write(x);
+            hasher.write(self.as_slice());
             hasher.finish()
         } else {
             0
         }
     }
 
-    fn set_key(&mut self, new_value: Self) {
-        unsafe {
-            (self as *mut Self).write(new_value.clone());
-        }
+    fn set_key(&mut self, new_value: &Self) {
+        *self = *new_value;
     }
 }

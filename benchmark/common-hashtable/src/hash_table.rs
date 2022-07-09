@@ -132,21 +132,19 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
     }
 
     #[inline(always)]
-    pub fn insert_key(&mut self, key: Key, inserted: &mut bool) -> *mut Entity {
+    pub fn insert_key(&mut self, key: &Key, inserted: &mut bool) -> *mut Entity {
         let hash = key.fast_hash();
-        if key.is_zero() {
-            self.insert_if_zero_key(key, hash, inserted)
-        } else {
-            self.insert_non_zero_key(key, hash, inserted)
+        match self.insert_if_zero_key(key, hash, inserted) {
+            None => self.insert_non_zero_key(key, hash, inserted),
+            Some(zero_hash_table_entity) => zero_hash_table_entity,
         }
     }
 
     #[inline(always)]
-    pub fn insert_hash_key(&mut self, key: Key, hash: u64, inserted: &mut bool) -> *mut Entity {
-        if key.is_zero() {
-            self.insert_if_zero_key(key, hash, inserted)
-        } else {
-            self.insert_non_zero_key(key, hash, inserted)
+    pub fn insert_hash_key(&mut self, key: &Key, hash: u64, inserted: &mut bool) -> *mut Entity {
+        match self.insert_if_zero_key(key, hash, inserted) {
+            None => self.insert_non_zero_key(key, hash, inserted),
+            Some(zero_hash_table_entity) => zero_hash_table_entity,
         }
     }
 
@@ -171,6 +169,7 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
     fn find_entity(&self, key: &Key, hash_value: u64) -> isize {
         unsafe {
             let grower = &self.grower;
+
             let mut place_value = grower.place(hash_value);
 
             while !self.entities.offset(place_value).is_zero()
@@ -181,6 +180,7 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
             {
                 place_value = grower.next_place(place_value);
             }
+
             place_value
         }
     }
@@ -188,11 +188,11 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
     #[inline(always)]
     fn insert_non_zero_key(
         &mut self,
-        key: Key,
+        key: &Key,
         hash_value: u64,
         inserted: &mut bool,
     ) -> *mut Entity {
-        let place_value = self.find_entity(&key, hash_value);
+        let place_value = self.find_entity(key, hash_value);
         self.insert_non_zero_key_impl(place_value, key, hash_value, inserted)
     }
 
@@ -200,7 +200,7 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
     fn insert_non_zero_key_impl(
         &mut self,
         place_value: isize,
-        key: Key,
+        key: &Key,
         hash_value: u64,
         inserted: &mut bool,
     ) -> *mut Entity {
@@ -218,7 +218,7 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
 
             if std::intrinsics::unlikely(self.grower.overflow(self.size)) {
                 self.resize();
-                let new_place = self.find_entity(entity.get_key(), hash_value);
+                let new_place = self.find_entity(key, hash_value);
                 return self.entities.offset(new_place);
             }
 
@@ -229,31 +229,33 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
     #[inline(always)]
     fn insert_if_zero_key(
         &mut self,
-        key: Key,
+        key: &Key,
         hash_value: u64,
         inserted: &mut bool,
-    ) -> *mut Entity {
-        assert!(key.is_zero());
+    ) -> Option<*mut Entity> {
+        if key.is_zero() {
+            return match self.zero_entity {
+                Some(zero_entity) => {
+                    *inserted = false;
+                    Some(zero_entity)
+                }
+                None => unsafe {
+                    let layout = Layout::from_size_align_unchecked(
+                        mem::size_of::<Entity>(),
+                        mem::align_of::<Entity>(),
+                    );
 
-        return match self.zero_entity {
-            Some(zero_entity) => {
-                *inserted = false;
-                zero_entity
-            }
-            None => unsafe {
-                let layout = Layout::from_size_align_unchecked(
-                    mem::size_of::<Entity>(),
-                    mem::align_of::<Entity>(),
-                );
+                    self.size += 1;
+                    *inserted = true;
+                    self.zero_entity_raw = Some(std::alloc::alloc_zeroed(layout));
+                    self.zero_entity = Some(self.zero_entity_raw.unwrap() as *mut Entity);
+                    self.zero_entity.unwrap().set_key_and_hash(key, hash_value);
+                    self.zero_entity
+                },
+            };
+        }
 
-                self.size += 1;
-                *inserted = true;
-                self.zero_entity_raw = Some(std::alloc::alloc_zeroed(layout));
-                self.zero_entity = Some(self.zero_entity_raw.unwrap() as *mut Entity);
-                self.zero_entity.unwrap().set_key_and_hash(key, hash_value);
-                self.zero_entity.unwrap()
-            },
-        };
+        Option::None
     }
 
     unsafe fn resize(&mut self) {

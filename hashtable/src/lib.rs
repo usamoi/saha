@@ -1,8 +1,11 @@
-#![feature(int_log)]
+#![feature(allocator_api)]
+#![feature(new_uninit)]
+#![feature(portable_simd)]
+#![feature(generic_associated_types)]
 
-pub mod hashtable;
-pub mod inline_ref;
+pub mod adaptive_hashtable;
+pub mod traits;
 
-mod encoding;
-mod fallback;
-mod inline;
+mod hash;
+mod table0;
+mod table1;

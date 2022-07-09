@@ -73,7 +73,7 @@ impl<
     #[inline(always)]
     pub fn insert_key(&mut self, key: &Key, inserted: &mut bool) -> *mut Entity {
         match self {
-            HashTableKind::HashTable(data) => data.insert_key(key.clone(), inserted),
+            HashTableKind::HashTable(data) => data.insert_key(key, inserted),
             HashTableKind::TwoLevelHashTable(data) => data.insert_key(key, inserted),
         }
     }
@@ -81,16 +81,8 @@ impl<
     #[inline(always)]
     pub fn insert_hash_key(&mut self, key: &Key, hash: u64, inserted: &mut bool) -> *mut Entity {
         match self {
-            HashTableKind::HashTable(data) => data.insert_hash_key(key.clone(), hash, inserted),
+            HashTableKind::HashTable(data) => data.insert_hash_key(key, hash, inserted),
             HashTableKind::TwoLevelHashTable(data) => data.insert_hash_key(key, hash, inserted),
-        }
-    }
-
-    #[inline(always)]
-    pub fn find_key(&self, key: &Key) -> Option<*mut Entity> {
-        match self {
-            HashTableKind::HashTable(data) => data.find_key(key),
-            HashTableKind::TwoLevelHashTable(data) => data.find_key(key),
         }
     }
 
@@ -170,13 +162,13 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
     pub fn insert_key(&mut self, key: &Key, inserted: &mut bool) -> *mut Entity {
         let hash = key.fast_hash();
         let bucket = self.get_bucket_from_hash(&hash);
-        self.hash_tables[bucket].insert_hash_key(key.clone(), hash, inserted)
+        self.hash_tables[bucket].insert_hash_key(key, hash, inserted)
     }
 
     #[inline(always)]
     pub fn insert_hash_key(&mut self, key: &Key, hash: u64, inserted: &mut bool) -> *mut Entity {
         let bucket = self.get_bucket_from_hash(&hash);
-        self.hash_tables[bucket].insert_hash_key(key.clone(), hash, inserted)
+        self.hash_tables[bucket].insert_hash_key(key, hash, inserted)
     }
 
     #[inline(always)]

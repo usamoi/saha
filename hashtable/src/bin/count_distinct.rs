@@ -1,10 +1,8 @@
 use hashtable::adaptive_hashtable::AdaptiveHashtable;
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-#[test]
-fn count_distinct() {
+fn main() {
     let mut sequence = Vec::new();
     for _ in 0..10000000 {
         let length = rand::thread_rng().gen_range(0..64);
@@ -13,22 +11,11 @@ fn count_distinct() {
         sequence.push(array);
     }
     let start = Instant::now();
-    let mut hashbrown = HashMap::<&[u8], u64>::new();
-    for s in sequence.iter() {
-        if let Some(x) = hashbrown.get_mut(&s[..]) {
-            *x += 1;
-        } else {
-            hashbrown.insert(&s, 1);
-        }
-    }
-    let end = Instant::now();
-    println!("count_distinct_hashbrown = {:?}", end - start);
-    let start = Instant::now();
     let mut saha = AdaptiveHashtable::new();
     for s in sequence.iter() {
         match unsafe { saha.insert(&s) } {
             Ok(e) => {
-                e.write(1u64);
+                e.write(1);
             }
             Err(e) => {
                 *e += 1;
@@ -37,10 +24,4 @@ fn count_distinct() {
     }
     let end = Instant::now();
     println!("count_distinct_saha = {:?}", end - start);
-    assert_eq!(hashbrown.len(), saha.len());
-    let mut repeat = HashSet::new();
-    for (key, value) in saha.iter() {
-        assert!(repeat.insert(key));
-        assert_eq!(hashbrown.get(key.as_ref()).copied(), Some(value));
-    }
 }

@@ -17,7 +17,7 @@ use crate::HashTableKeyable;
 pub trait HashTableEntity<Key>: Sized {
     unsafe fn is_zero(self: *mut Self) -> bool;
     unsafe fn key_equals(self: *mut Self, key: &Key, hash: u64) -> bool;
-    unsafe fn set_key_and_hash(self: *mut Self, key: Key, hash: u64);
+    unsafe fn set_key_and_hash(self: *mut Self, key: &Key, hash: u64);
 
     fn get_key<'a>(self: *mut Self) -> &'a Key;
     unsafe fn get_hash(self: *mut Self) -> u64;
@@ -74,7 +74,7 @@ where
         (*self).key == *key
     }
 
-    unsafe fn set_key_and_hash(self: *mut Self, key: Key, hash: u64) {
+    unsafe fn set_key_and_hash(self: *mut Self, key: &Key, hash: u64) {
         (*self).hash = hash;
         (*self).key.set_key(key);
     }

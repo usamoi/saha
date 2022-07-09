@@ -1,6 +1,7 @@
 use benchmarker::measure_memory::MeasureMemory;
 use benchmarker::measure_time::measure_time;
 use benchmarker::subject::Subject;
+use common_hashtable::UnsafeBytesRef;
 use std::error::Error;
 use std::io::Read;
 
@@ -113,8 +114,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     let manifest = serde_json::from_str::<Manifest>(&std::fs::read_to_string("manifest.json")?)?;
     println!("subject,dataset,time_build,time_probe,time_foreach,memory,count,count_distinct");
-    solver::<common_hashtable::HashMap<Option<Box<[u8]>>, u64>>(&manifest)?;
+    solver::<hashtable::adaptive_hashtable::AdaptiveHashtable<u64>>(&manifest)?;
+    solver::<(common_hashtable::HashMap<UnsafeBytesRef, u64>, Vec<Box<[u8]>>)>(&manifest)?;
     solver::<hashbrown::HashMap<Box<[u8]>, u64>>(&manifest)?;
-    solver::<hashtable::hashtable::Hashtable>(&manifest)?;
     Ok(())
 }

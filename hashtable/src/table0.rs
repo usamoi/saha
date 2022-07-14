@@ -1,4 +1,4 @@
-use crate::traits::{Key, Value};
+use crate::traits::Key;
 use std::alloc::{Allocator, Global, Layout};
 use std::borrow::Borrow;
 use std::mem::MaybeUninit;
@@ -9,26 +9,26 @@ struct Slot<K, V> {
     val: MaybeUninit<V>,
 }
 
-impl<K: Key, V: Value> Slot<K, V> {
+impl<K: Key, V> Slot<K, V> {
     #[inline(always)]
     fn is_zero(&self) -> bool {
         K::is_zero(&self.key)
     }
 }
 
-pub struct Table0<K: Key, V: Value> {
+pub struct Table0<K: Key, V> {
     slots: Box<[Slot<K, V>]>,
     slot: Option<Box<Slot<K, V>>>,
     len: usize,
 }
 
-impl<K: Key, V: Value> Table0<K, V> {
+impl<K: Key, V> Table0<K, V> {
     pub fn new() -> Self {
         Self::with_capacity(1 << 8)
     }
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            slots: unsafe { Box::new_zeroed_slice(capacity).assume_init() },
+            slots: unsafe { Box::new_zeroed_slice(std::cmp::max(32, capacity)).assume_init() },
             slot: None,
             len: 0,
         }
@@ -37,12 +37,12 @@ impl<K: Key, V: Value> Table0<K, V> {
         self.len
     }
     pub fn capacity(&self) -> usize {
-        self.slots.len()
+        self.slots.len() + if self.slot.is_some() { 1 } else { 0 }
     }
-    pub fn get(&self, key: &K) -> Option<V::Ref<'_>> {
+    pub fn get(&self, key: &K) -> Option<&V> {
         if K::equals_zero(&key) {
             if let Some(slot) = self.slot.as_ref() {
-                return Some(unsafe { slot.val.assume_init_ref().as_ref() });
+                return Some(unsafe { slot.val.assume_init_ref() });
             } else {
                 return None;
             }
@@ -54,7 +54,7 @@ impl<K: Key, V: Value> Table0<K, V> {
                 return None;
             }
             if unsafe { self.slots[i].key.assume_init_ref() }.borrow() == key {
-                return Some(unsafe { self.slots[i].val.assume_init_ref().as_ref() });
+                return Some(unsafe { self.slots[i].val.assume_init_ref() });
             }
         }
         None
@@ -93,6 +93,7 @@ impl<K: Key, V: Value> Table0<K, V> {
                 return Err(slot.val.assume_init_mut());
             } else {
                 *escape = Some(Box::new_zeroed().assume_init());
+                self.len += 1;
                 return Ok(&mut escape.as_mut().unwrap().val);
             }
         }
@@ -163,17 +164,12 @@ impl<K: Key, V: Value> Table0<K, V> {
             }
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = (&K, V::Ref<'_>)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> + '_ {
         self.slots
             .iter()
             .filter(|slot| !slot.is_zero())
             .chain(self.slot.iter().map(Box::as_ref))
-            .map(|slot| unsafe {
-                (
-                    slot.key.assume_init_ref(),
-                    slot.val.assume_init_ref().as_ref(),
-                )
-            })
+            .map(|slot| unsafe { (slot.key.assume_init_ref(), slot.val.assume_init_ref()) })
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&K, &mut V)> + '_ {
         self.slots
@@ -184,7 +180,7 @@ impl<K: Key, V: Value> Table0<K, V> {
     }
 }
 
-impl<K: Key, V: Value> Drop for Table0<K, V> {
+impl<K: Key, V> Drop for Table0<K, V> {
     fn drop(&mut self) {
         if std::mem::needs_drop::<V>() {
             self.iter_mut().for_each(|(_, v)| unsafe {

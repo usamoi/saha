@@ -1,4 +1,3 @@
-use crate::traits::Value;
 use std::mem::MaybeUninit;
 
 static ALLKEYS: [[[u8; 2]; 256]; 256] = {
@@ -15,17 +14,17 @@ static ALLKEYS: [[[u8; 2]; 256]; 256] = {
     ans
 };
 
-struct Table1Inner<V: Value> {
+struct Table1Inner<V> {
     data: [[MaybeUninit<V>; 64]; 1024],
     bits: [u64; 1024],
 }
 
-pub struct Table1<V: Value> {
+pub struct Table1<V> {
     inner: Box<Table1Inner<V>>,
     len: usize,
 }
 
-impl<V: Value> Table1<V> {
+impl<V> Table1<V> {
     pub fn new() -> Self {
         Self {
             inner: unsafe { Box::<Table1Inner<V>>::new_zeroed().assume_init() },
@@ -38,12 +37,12 @@ impl<V: Value> Table1<V> {
     pub fn len(&self) -> usize {
         self.len
     }
-    pub fn get(&self, key: [u8; 2]) -> Option<V::Ref<'_>> {
+    pub fn get(&self, key: [u8; 2]) -> Option<&V> {
         let x = ((key[0] as usize) << 2) | (key[1] as usize >> 6);
         let y = key[1] & 63;
         let z = (self.inner.bits[x] & (1 << y)) != 0;
         if z {
-            Some(unsafe { self.inner.data[x][y as usize].assume_init_ref().as_ref() })
+            Some(unsafe { self.inner.data[x][y as usize].assume_init_ref().to_owned() })
         } else {
             None
         }
@@ -73,7 +72,7 @@ impl<V: Value> Table1<V> {
             Ok(&mut self.inner.data[x][y as usize])
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = (&[u8; 2], V::Ref<'_>)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (&[u8; 2], &V)> + '_ {
         self.inner
             .data
             .iter()
@@ -89,7 +88,7 @@ impl<V: Value> Table1<V> {
                     let i = (x >> 2) as u8;
                     let j = ((x & 3) << 6) as u8 | y as u8;
                     let k = &ALLKEYS[i as usize][j as usize];
-                    let v = unsafe { group[y as usize].assume_init_ref() }.as_ref();
+                    let v = unsafe { group[y as usize].assume_init_ref() }.to_owned();
                     Some((k, v))
                 })
             })
@@ -119,7 +118,7 @@ impl<V: Value> Table1<V> {
     }
 }
 
-impl<V: Value> Drop for Table1<V> {
+impl<V> Drop for Table1<V> {
     fn drop(&mut self) {
         if std::mem::needs_drop::<V>() {
             self.iter_mut().for_each(|(_, v)| unsafe {

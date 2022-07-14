@@ -1,11 +1,13 @@
 #![feature(allocator_api)]
 #![feature(new_uninit)]
 #![feature(portable_simd)]
-#![feature(generic_associated_types)]
+#![feature(trivial_bounds)]
 
-pub mod adaptive_hashtable;
+pub mod batch_hashtable;
+pub mod hashtable;
 pub mod traits;
+pub mod unsized_hashtable;
 
-mod hash;
 mod table0;
 mod table1;
+mod table2;

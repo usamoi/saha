@@ -1,67 +1,66 @@
 use crate::table0::Table0;
 use crate::table1::Table1;
-use crate::traits::{Key, Value};
+use crate::traits::{Key, UnsizedKey};
 use bumpalo::Bump;
-use std::arch::x86_64::_mm_crc32_u64;
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::num::NonZeroU64;
 use std::ptr::NonNull;
 
-pub struct AdaptiveHashtable<V: Value> {
+pub struct UnsizedHashtable<K: UnsizedKey + ?Sized, V> {
     arena: Bump,
-    encoding: Table1<V>,
-    inline0: Table0<InlineKey<0>, V>,
-    inline1: Table0<InlineKey<1>, V>,
-    inline2: Table0<InlineKey<2>, V>,
-    fallback: Table0<FallbackKey, V>,
+    raw0: Table1<V>,
+    raw1: Table0<InlineKey<0>, V>,
+    raw2: Table0<InlineKey<1>, V>,
+    raw3: Table0<InlineKey<2>, V>,
+    raw4: Table0<FallbackKey, V>,
+    _phantom: PhantomData<K>,
 }
 
-impl<V: Value> AdaptiveHashtable<V> {
+impl<K: UnsizedKey + ?Sized, V> UnsizedHashtable<K, V> {
     pub fn new() -> Self {
         Self {
             arena: Bump::new(),
-            encoding: Table1::new(),
-            inline0: Table0::new(),
-            inline1: Table0::new(),
-            inline2: Table0::new(),
-            fallback: Table0::new(),
+            raw0: Table1::new(),
+            raw1: Table0::new(),
+            raw2: Table0::new(),
+            raw3: Table0::new(),
+            raw4: Table0::new(),
+            _phantom: PhantomData,
         }
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
     pub fn len(&self) -> usize {
-        self.encoding.len()
-            + self.inline0.len()
-            + self.inline1.len()
-            + self.inline2.len()
-            + self.fallback.len()
+        self.raw0.len() + self.raw1.len() + self.raw2.len() + self.raw3.len() + self.raw4.len()
     }
     pub fn capacity(&self) -> usize {
-        self.encoding.capacity()
-            + self.inline0.capacity()
-            + self.inline1.capacity()
-            + self.inline2.capacity()
-            + self.fallback.capacity()
+        self.raw0.capacity()
+            + self.raw1.capacity()
+            + self.raw2.capacity()
+            + self.raw3.capacity()
+            + self.raw4.capacity()
     }
-    pub fn get(&self, key: &[u8]) -> Option<V::Ref<'_>> {
+    pub fn get(&self, key: &K) -> Option<&V> {
+        let key = key.as_bytes();
         match key.len() {
-            _ if key.last().copied() == Some(0) => self.fallback.get(&FallbackKey::new(key)),
-            0 => self.encoding.get([0, 0]),
-            1 => self.encoding.get([key[0], 0]),
-            2 => self.encoding.get([key[0], key[1]]),
+            _ if key.last().copied() == Some(0) => self.raw4.get(&FallbackKey::new(key)),
+            0 => self.raw0.get([0, 0]),
+            1 => self.raw0.get([key[0], 0]),
+            2 => self.raw0.get([key[0], key[1]]),
             3..=8 => unsafe {
                 let mut t = [0u64; 1];
                 t[0] = read_little(key.as_ptr(), key.len());
                 let t = std::mem::transmute::<_, InlineKey<0>>(t);
-                self.inline0.get(&t)
+                self.raw1.get(&t)
             },
             9..=16 => unsafe {
                 let mut t = [0u64; 2];
                 t[0] = (key.as_ptr() as *const u64).read_unaligned();
                 t[1] = read_little(key.as_ptr().offset(8), key.len() - 8);
                 let t = std::mem::transmute::<_, InlineKey<1>>(t);
-                self.inline1.get(&t)
+                self.raw2.get(&t)
             },
             17..=24 => unsafe {
                 let mut t = [0u64; 3];
@@ -69,29 +68,30 @@ impl<V: Value> AdaptiveHashtable<V> {
                 t[1] = (key.as_ptr() as *const u64).offset(1).read_unaligned();
                 t[2] = read_little(key.as_ptr().offset(16), key.len() - 16);
                 let t = std::mem::transmute::<_, InlineKey<2>>(t);
-                self.inline2.get(&t)
+                self.raw3.get(&t)
             },
-            _ => self.fallback.get(&FallbackKey::new(key)),
+            _ => self.raw4.get(&FallbackKey::new(key)),
         }
     }
-    pub fn get_mut(&mut self, key: &[u8]) -> Option<&mut V> {
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let key = key.as_bytes();
         match key.len() {
-            _ if key.last().copied() == Some(0) => self.fallback.get_mut(&FallbackKey::new(key)),
-            0 => self.encoding.get_mut([0, 0]),
-            1 => self.encoding.get_mut([key[0], 0]),
-            2 => self.encoding.get_mut([key[0], key[1]]),
+            _ if key.last().copied() == Some(0) => self.raw4.get_mut(&FallbackKey::new(key)),
+            0 => self.raw0.get_mut([0, 0]),
+            1 => self.raw0.get_mut([key[0], 0]),
+            2 => self.raw0.get_mut([key[0], key[1]]),
             3..=8 => unsafe {
                 let mut t = [0u64; 1];
                 t[0] = read_little(key.as_ptr(), key.len());
                 let t = std::mem::transmute::<_, InlineKey<0>>(t);
-                self.inline0.get_mut(&t)
+                self.raw1.get_mut(&t)
             },
             9..=16 => unsafe {
                 let mut t = [0u64; 2];
                 t[0] = (key.as_ptr() as *const u64).read_unaligned();
                 t[1] = read_little(key.as_ptr().offset(8), key.len() - 8);
                 let t = std::mem::transmute::<_, InlineKey<1>>(t);
-                self.inline1.get_mut(&t)
+                self.raw2.get_mut(&t)
             },
             17..=24 => unsafe {
                 let mut t = [0u64; 3];
@@ -99,73 +99,82 @@ impl<V: Value> AdaptiveHashtable<V> {
                 t[1] = (key.as_ptr() as *const u64).offset(1).read_unaligned();
                 t[2] = read_little(key.as_ptr().offset(16), key.len() - 16);
                 let t = std::mem::transmute::<_, InlineKey<2>>(t);
-                self.inline2.get_mut(&t)
+                self.raw3.get_mut(&t)
             },
-            _ => self.fallback.get_mut(&FallbackKey::new(key)),
+            _ => self.raw4.get_mut(&FallbackKey::new(key)),
         }
     }
-    pub unsafe fn insert(&mut self, key: &[u8]) -> Result<&mut MaybeUninit<V>, &mut V> {
+    pub unsafe fn insert(&mut self, key: &K) -> Result<&mut MaybeUninit<V>, &mut V> {
+        let key = key.as_bytes();
         match key.len() {
             _ if key.last().copied() == Some(0) => {
-                if (self.fallback.len() + 1) * 2 > self.fallback.capacity() {
-                    self.fallback.grow();
+                if (self.raw4.len() + 1) * 2 > self.raw4.capacity() {
+                    self.raw4.grow();
                 }
                 let s = self.arena.alloc_slice_copy(key);
-                self.fallback.insert(FallbackKey::new(s))
+                self.raw4.insert(FallbackKey::new(s))
             }
-            0 => self.encoding.insert([0, 0]),
-            1 => self.encoding.insert([key[0], 0]),
-            2 => self.encoding.insert([key[0], key[1]]),
+            0 => self.raw0.insert([0, 0]),
+            1 => self.raw0.insert([key[0], 0]),
+            2 => self.raw0.insert([key[0], key[1]]),
             3..=8 => {
-                if (self.inline0.len() + 1) * 2 > self.inline0.capacity() {
-                    self.inline0.grow();
+                if (self.raw1.len() + 1) * 2 > self.raw1.capacity() {
+                    self.raw1.grow();
                 }
                 let mut t = [0u64; 1];
                 t[0] = read_little(key.as_ptr(), key.len());
                 let t = std::mem::transmute::<_, InlineKey<0>>(t);
-                self.inline0.insert(t)
+                self.raw1.insert(t)
             }
             9..=16 => {
-                if (self.inline1.len() + 1) * 2 > self.inline1.capacity() {
-                    self.inline1.grow();
+                if (self.raw2.len() + 1) * 2 > self.raw2.capacity() {
+                    self.raw2.grow();
                 }
                 let mut t = [0u64; 2];
                 t[0] = (key.as_ptr() as *const u64).read_unaligned();
                 t[1] = read_little(key.as_ptr().offset(8), key.len() - 8);
                 let t = std::mem::transmute::<_, InlineKey<1>>(t);
-                self.inline1.insert(t)
+                self.raw2.insert(t)
             }
             17..=24 => {
-                if (self.inline2.len() + 1) * 2 > self.inline2.capacity() {
-                    self.inline2.grow();
+                if (self.raw3.len() + 1) * 2 > self.raw3.capacity() {
+                    self.raw3.grow();
                 }
                 let mut t = [0u64; 3];
                 t[0] = (key.as_ptr() as *const u64).read_unaligned();
                 t[1] = (key.as_ptr() as *const u64).offset(1).read_unaligned();
                 t[2] = read_little(key.as_ptr().offset(16), key.len() - 16);
                 let t = std::mem::transmute::<_, InlineKey<2>>(t);
-                self.inline2.insert(t)
+                self.raw3.insert(t)
             }
             _ => {
-                if (self.fallback.len() + 1) * 2 > self.fallback.capacity() {
-                    self.fallback.grow();
+                if (self.raw4.len() + 1) * 2 > self.raw4.capacity() {
+                    self.raw4.grow();
                 }
                 let s = self.arena.alloc_slice_copy(key);
-                self.fallback.insert(FallbackKey::new(s))
+                self.raw4.insert(FallbackKey::new(s))
             }
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = (&[u8], V::Ref<'_>)> {
-        self.fallback
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
+        self.raw4
             .iter()
-            .map(|(key, value)| (unsafe { key.key.unwrap().as_ref() }, value))
-            .chain(self.inline0.iter().map(|(key, value)| {
+            .map(|(key, value)| {
+                (
+                    unsafe { UnsizedKey::from_bytes(key.key.unwrap().as_ref()) },
+                    value,
+                )
+            })
+            .chain(self.raw1.iter().map(|(key, value)| {
                 let bytes = key.1.get().to_le_bytes();
                 unsafe {
                     for i in (0..=7).rev() {
                         if bytes[i] != 0 {
                             return (
-                                std::slice::from_raw_parts(key as *const _ as *const u8, i + 1),
+                                UnsizedKey::from_bytes(std::slice::from_raw_parts(
+                                    key as *const _ as *const u8,
+                                    i + 1,
+                                )),
                                 value,
                             );
                         }
@@ -173,13 +182,16 @@ impl<V: Value> AdaptiveHashtable<V> {
                 }
                 unreachable!()
             }))
-            .chain(self.inline1.iter().map(|(key, value)| {
+            .chain(self.raw2.iter().map(|(key, value)| {
                 let bytes = key.1.get().to_le_bytes();
                 unsafe {
                     for i in (0..=7).rev() {
                         if bytes[i] != 0 {
                             return (
-                                std::slice::from_raw_parts(key as *const _ as *const u8, i + 9),
+                                UnsizedKey::from_bytes(std::slice::from_raw_parts(
+                                    key as *const _ as *const u8,
+                                    i + 9,
+                                )),
                                 value,
                             );
                         }
@@ -187,13 +199,16 @@ impl<V: Value> AdaptiveHashtable<V> {
                 }
                 unreachable!()
             }))
-            .chain(self.inline2.iter().map(|(key, value)| {
+            .chain(self.raw3.iter().map(|(key, value)| {
                 let bytes = key.1.get().to_le_bytes();
                 unsafe {
                     for i in (0..=7).rev() {
                         if bytes[i] != 0 {
                             return (
-                                std::slice::from_raw_parts(key as *const _ as *const u8, i + 17),
+                                UnsizedKey::from_bytes(std::slice::from_raw_parts(
+                                    key as *const _ as *const u8,
+                                    i + 17,
+                                )),
                                 value,
                             );
                         }
@@ -201,13 +216,13 @@ impl<V: Value> AdaptiveHashtable<V> {
                 }
                 unreachable!()
             }))
-            .chain(self.encoding.iter().map(|(key, value)| {
+            .chain(self.raw0.iter().map(|(key, value)| unsafe {
                 if key[1] != 0 {
-                    (&key[..2], value)
+                    (UnsizedKey::from_bytes(&key[..2]), value)
                 } else if key[0] != 0 {
-                    (&key[..1], value)
+                    (UnsizedKey::from_bytes(&key[..1]), value)
                 } else {
-                    (&key[..0], value)
+                    (UnsizedKey::from_bytes(&key[..0]), value)
                 }
             }))
     }
@@ -230,6 +245,7 @@ unsafe impl<const N: usize> Key for InlineKey<N> {
 
     #[inline(always)]
     fn hash(&self) -> u64 {
+        use std::arch::x86_64::_mm_crc32_u64;
         let mut hasher = u64::MAX;
         for x in self.0 {
             hasher = unsafe { _mm_crc32_u64(hasher, x) };
@@ -239,6 +255,7 @@ unsafe impl<const N: usize> Key for InlineKey<N> {
     }
 }
 
+#[derive(Copy, Clone)]
 struct FallbackKey {
     key: Option<NonNull<[u8]>>,
     hash: u64,
@@ -249,6 +266,7 @@ impl FallbackKey {
         Self {
             key: Some(NonNull::from(key)),
             hash: {
+                use std::arch::x86_64::_mm_crc32_u64;
                 let mut hasher = u64::MAX;
                 for i in (0..key.len()).step_by(8) {
                     if i + 8 < key.len() {

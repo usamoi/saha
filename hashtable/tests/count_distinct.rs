@@ -1,4 +1,4 @@
-use hashtable::adaptive_hashtable::AdaptiveHashtable;
+use hashtable::unsized_hashtable::UnsizedHashtable;
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
@@ -24,7 +24,7 @@ fn count_distinct() {
     let end = Instant::now();
     println!("count_distinct_hashbrown = {:?}", end - start);
     let start = Instant::now();
-    let mut saha = AdaptiveHashtable::new();
+    let mut saha = UnsizedHashtable::<[u8], u64>::new();
     for s in sequence.iter() {
         match unsafe { saha.insert(&s) } {
             Ok(e) => {
@@ -41,6 +41,6 @@ fn count_distinct() {
     let mut repeat = HashSet::new();
     for (key, value) in saha.iter() {
         assert!(repeat.insert(key));
-        assert_eq!(hashbrown.get(key.as_ref()).copied(), Some(value));
+        assert_eq!(hashbrown.get(key.as_ref()), Some(value));
     }
 }

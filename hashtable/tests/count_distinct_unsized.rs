@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 #[test]
-fn count_distinct() {
+fn count_distinct_unsized() {
     let mut sequence = Vec::new();
     for _ in 0..10000000 {
         let length = rand::thread_rng().gen_range(0..64);

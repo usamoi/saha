@@ -8,11 +8,12 @@ publish = false
 debug = true
 
 [dependencies]
-ahash = "0.7.6"
 arrayvec = "0.7.2"
 bumpalo = "3.10.0"
 core_simd = { git = "https://github.com/rust-lang/portable-simd" }
+memoffset = "0.6.5"
 primitive-types = "0.11.1"
 
 [dev-dependencies]
+ahash = "0.7.6"
 rand = "0.8.5"

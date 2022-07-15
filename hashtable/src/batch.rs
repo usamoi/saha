@@ -1,4 +1,5 @@
-use crate::table2::Table2;
+use crate::table0::Slot;
+use crate::table0::Table0;
 use crate::traits::BatchKey;
 use crate::traits::Key;
 use arrayvec::ArrayVec;
@@ -10,59 +11,13 @@ use core_simd::simd::SimdElement;
 use core_simd::simd::SimdPartialEq;
 use core_simd::simd::SupportedLaneCount;
 use core_simd::ToBitMask;
-use std::mem::MaybeUninit;
-use std::ops::BitAnd;
-use std::ops::BitOr;
-
-pub struct BatchHashtable<K: Key, V> {
-    raw: Table2<K, V>,
-}
-
-impl<K: Key, V> BatchHashtable<K, V> {
-    pub fn new() -> Self {
-        Self { raw: Table2::new() }
-    }
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-    pub fn len(&self) -> usize {
-        self.raw.len()
-    }
-    pub fn capacity(&self) -> usize {
-        self.raw.capacity()
-    }
-    pub fn get(&self, key: &K) -> Option<&V> {
-        self.raw.get(key)
-    }
-    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.raw.get_mut(key)
-    }
-    pub unsafe fn insert(&mut self, key: K) -> Result<&mut MaybeUninit<V>, &mut V> {
-        if (self.raw.len() + 1) * 2 > self.raw.capacity() {
-            self.raw.grow();
-        }
-        self.raw.insert(key)
-    }
-    pub unsafe fn batch_update<'a, const LANES: usize, D, F, G>(
-        &'a mut self,
-        f: F,
-        g: G,
-    ) -> BatchUpdater<'a, LANES, K, V, D, F, G>
-    where
-        K: Key,
-    {
-        BatchUpdater::<LANES, K, V, D, F, G>::new(&mut self.raw, f, g)
-    }
-    pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
-        self.raw.iter()
-    }
-}
+use memoffset::offset_of;
 
 pub struct BatchUpdater<'a, const LANES: usize, K, V, D, F, G>
 where
     K: Key,
 {
-    pub(crate) table: &'a mut Table2<K, V>,
+    pub(crate) table: &'a mut Table0<K, V>,
     pub(crate) keys: ArrayVec<K, 2048>,
     pub(crate) dels: ArrayVec<D, 2048>,
     pub(crate) insert: F,
@@ -73,7 +28,7 @@ impl<'a, const LANES: usize, K, V, D, F, G> BatchUpdater<'a, LANES, K, V, D, F, 
 where
     K: Key,
 {
-    pub(crate) unsafe fn new(table: &'a mut Table2<K, V>, f: F, g: G) -> Self {
+    pub(crate) unsafe fn new(table: &'a mut Table0<K, V>, f: F, g: G) -> Self {
         Self {
             table,
             keys: ArrayVec::new(),
@@ -96,12 +51,8 @@ where
     Simd<usize, LANES>: DynamicSwizzle<I = [u32; LANES]>,
     Simd<K, LANES>: DynamicSwizzle<I = [u32; LANES]>,
     Simd<K, LANES>: SimdPartialEq<Mask = Mask<K::Mask, LANES>>,
-    Mask<K::Mask, LANES>: BitOr<Output = Mask<K::Mask, LANES>>,
-    Mask<K::Mask, LANES>: BitAnd<Output = Mask<K::Mask, LANES>>,
     Mask<K::Mask, LANES>: ToBitMask<BitMask = u8>,
-    Simd<V, LANES>: DynamicSwizzle<I = [u32; LANES]>,
     Simd<D, LANES>: DynamicSwizzle<I = [u32; LANES]>,
-    Simd<u64, LANES>: DynamicSwizzle<I = [u32; LANES]>,
 {
     pub fn push(&mut self, k: K, d: D) {
         if Key::equals_zero(&k) {
@@ -131,10 +82,19 @@ where
         while (self.keys.len() + self.table.len()) * 2 > self.table.capacity() {
             self.table.grow();
         }
-        let n = self.table.keys.len();
+        let n = self.table.slots.len();
         let m = self.keys.len();
-        let table_keys = unsafe { std::mem::transmute::<_, &mut [K]>(self.table.keys.as_mut()) };
-        let table_vals = unsafe { std::mem::transmute::<_, &mut [V]>(self.table.vals.as_mut()) };
+        let offset_keys = offset_of!(Slot<K, V>, key);
+        let offset_vals = offset_of!(Slot<K, V>, val);
+        let data_keys =
+            unsafe { (self.table.slots.as_mut().as_mut_ptr() as *mut u8).add(offset_keys) };
+        let data_vals =
+            unsafe { (self.table.slots.as_mut().as_mut_ptr() as *mut u8).add(offset_vals) };
+        // Gathering with a scale helps a lot.
+        // It seems there is no issue tracking for it.
+        let table_keys = unsafe { std::slice::from_raw_parts_mut(data_keys as *mut K, 0) };
+        let table_vals = unsafe { std::slice::from_raw_parts_mut(data_vals as *mut V, 0) };
+        let scale = Simd::splat(std::mem::size_of::<Slot<K, V>>() / 8);
         let input_keys = self.keys.as_ref();
         let input_dels = self.dels.as_ref();
         let mut idx: Simd<usize, LANES> = Simd::default();
@@ -155,28 +115,37 @@ where
                 let ptr_del = input_dels[i - t..].as_ptr() as *const Simd<D, LANES>;
                 key = mask.select(ptr_key.read_unaligned(), key);
                 del = mask.cast().select(ptr_del.read_unaligned(), del);
-                idx = mask
-                    .cast()
-                    .select(map(|x| Key::hash(&x), key).cast() & Simd::splat(n - 1), idx);
+                idx = mask.cast().select(
+                    (map(|x| Key::hash(&x), key).cast() & Simd::splat(n - 1)) * scale,
+                    idx,
+                );
                 i += mask.to_bitmask().count_ones() as usize;
-                // Gathering with a scale helps a lot.
-                // It seems there is no issue tracking for it.
-                let result = Simd::gather_or_default(table_keys, idx);
-                let zz = result.simd_eq(Simd::default());
-                let mm = result.simd_eq(key);
-                mask = Operations::conflict_detection(idx, (zz | mm).cast()).cast();
-                let result_z = zz & mask;
-                let result_m = mm & mask;
-                let base = Simd::gather_select(table_vals, result_m.cast(), idx, Simd::default());
-                key.scatter_select(table_keys, result_z.cast(), idx);
+                let result = Simd::gather_select_unchecked(
+                    table_keys,
+                    Mask::splat(true),
+                    idx,
+                    Simd::default(),
+                );
+                let test_z = result.simd_eq(Simd::default());
+                let test_m = result.simd_eq(key);
+                mask = Operations::conflict_detection(idx, (test_z | test_m).cast()).cast();
+                let result_z = test_z & mask;
+                let result_m = test_m & mask;
+                let base = Simd::gather_select_unchecked(
+                    table_vals,
+                    result_m.cast(),
+                    idx,
+                    Simd::default(),
+                );
+                key.scatter_select_unchecked(table_keys, result_z.cast(), idx);
                 result_z
                     .cast()
                     .select(map(&self.insert, del), map2(&self.update, base, del))
-                    .scatter_select(table_vals, mask.cast(), idx);
+                    .scatter_select_unchecked(table_vals, mask.cast(), idx);
                 self.table.len += result_z.to_bitmask().count_ones() as usize;
-                idx = (zz | mm)
+                idx = (test_z | test_m)
                     .cast()
-                    .select(idx, (idx + Simd::splat(1)) & Simd::splat(n - 1));
+                    .select(idx, (idx + scale) & (scale * Simd::splat(n - 1)));
             }
             for j in 0..LANES {
                 if !mask.test(j) {
@@ -278,6 +247,7 @@ impl SupportedOperations<1> for Operations {
 }
 
 impl SupportedOperations<2> for Operations {
+    #[inline(always)]
     fn reorder(i: u8) -> [u32; 2] {
         const B: [[u32; 2]; 4] = {
             let mut ans = [[0u32; 2]; 4];
@@ -296,9 +266,9 @@ impl SupportedOperations<2> for Operations {
         #[inline(always)]
         fn internal(simd: Simd<usize, 2>, mut mask: Mask<isize, 2>) -> Mask<isize, 2> {
             const V0: [usize; 2] = [1, 0];
-            let value = mask.test(1);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V0)) | !mask_swizzle!(mask, V0);
-            mask.set(1, value);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V0))
+                | !mask_swizzle!(mask, V0)
+                | mask & Mask::from_array([false, true]);
             mask
         }
 
@@ -331,12 +301,12 @@ impl SupportedOperations<4> for Operations {
         fn internal(simd: Simd<usize, 4>, mut mask: Mask<isize, 4>) -> Mask<isize, 4> {
             const V0: [usize; 4] = [1, 2, 3, 0];
             const V1: [usize; 4] = [2, 3, 1, 0];
-            let value = mask.test(3);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V0)) | !mask_swizzle!(mask, V0);
-            mask.set(3, value);
-            let value = mask.test(2);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V1)) | !mask_swizzle!(mask, V1);
-            mask.set(2, value);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V0))
+                | !mask_swizzle!(mask, V0)
+                | mask & Mask::from_array([false, false, false, true]);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V1))
+                | !mask_swizzle!(mask, V1)
+                | mask & Mask::from_array([false, false, true, false]);
             mask
         }
 
@@ -371,18 +341,18 @@ impl SupportedOperations<8> for Operations {
             const V1: [usize; 8] = [2, 3, 5, 0, 6, 7, 1, 4];
             const V2: [usize; 8] = [6, 7, 4, 5, 0, 2, 1, 3];
             const V3: [usize; 8] = [5, 4, 7, 6, 3, 1, 2, 0];
-            let value = mask.test(7);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V0)) | !mask_swizzle!(mask, V0);
-            mask.set(7, value);
-            let value = mask.test(6);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V1)) | !mask_swizzle!(mask, V1);
-            mask.set(6, value);
-            let value = mask.test(5);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V2)) | !mask_swizzle!(mask, V2);
-            mask.set(5, value);
-            let value = mask.test(4);
-            mask &= simd.simd_ne(simd_swizzle!(simd, V3)) | !mask_swizzle!(mask, V3);
-            mask.set(4, value);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V0))
+                | !mask_swizzle!(mask, V0)
+                | mask & Mask::from_array([false, false, false, false, false, false, false, true]);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V1))
+                | !mask_swizzle!(mask, V1)
+                | mask & Mask::from_array([false, false, false, false, false, false, true, false]);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V2))
+                | !mask_swizzle!(mask, V2)
+                | mask & Mask::from_array([false, false, false, false, false, true, false, false]);
+            mask &= simd.simd_ne(simd_swizzle!(simd, V3))
+                | !mask_swizzle!(mask, V3)
+                | mask & Mask::from_array([false, false, false, false, true, false, false, false]);
             mask
         }
 

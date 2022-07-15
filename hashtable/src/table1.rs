@@ -14,20 +14,20 @@ static ALLKEYS: [[[u8; 2]; 256]; 256] = {
     ans
 };
 
-struct Table1Inner<V> {
-    data: [[MaybeUninit<V>; 64]; 1024],
-    bits: [u64; 1024],
+pub(crate) struct Inner<V> {
+    pub(crate) data: [[MaybeUninit<V>; 64]; 1024],
+    pub(crate) bits: [u64; 1024],
 }
 
 pub struct Table1<V> {
-    inner: Box<Table1Inner<V>>,
-    len: usize,
+    pub(crate) inner: Box<Inner<V>>,
+    pub(crate) len: usize,
 }
 
 impl<V> Table1<V> {
     pub fn new() -> Self {
         Self {
-            inner: unsafe { Box::<Table1Inner<V>>::new_zeroed().assume_init() },
+            inner: unsafe { Box::<Inner<V>>::new_zeroed().assume_init() },
             len: 0,
         }
     }

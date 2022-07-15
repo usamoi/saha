@@ -1,3 +1,4 @@
+use crate::batch::BatchUpdater;
 use crate::table0::Table0;
 use crate::traits::Key;
 use std::mem::MaybeUninit;
@@ -33,5 +34,15 @@ impl<K: Key, V> Hashtable<K, V> {
     }
     pub fn iter(&self) -> impl Iterator<Item = (&K, &V)> {
         self.raw.iter()
+    }
+    pub unsafe fn batch_update<'a, const LANES: usize, D, F, G>(
+        &'a mut self,
+        f: F,
+        g: G,
+    ) -> BatchUpdater<'a, LANES, K, V, D, F, G>
+    where
+        K: Key,
+    {
+        BatchUpdater::<LANES, K, V, D, F, G>::new(&mut self.raw, f, g)
     }
 }

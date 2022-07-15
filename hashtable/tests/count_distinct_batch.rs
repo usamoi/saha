@@ -1,4 +1,3 @@
-use hashtable::batch_hashtable::BatchHashtable;
 use hashtable::hashtable::Hashtable;
 use rand::Rng;
 use std::collections::HashSet;
@@ -23,7 +22,7 @@ fn count_distinct_batch() {
     let end = Instant::now();
     println!("count_distinct_normal = {:?}", end - start);
     let start = Instant::now();
-    let mut batch_hashtable = BatchHashtable::<u64, u64>::new();
+    let mut batch_hashtable = Hashtable::<u64, u64>::new();
     let mut batch = unsafe { batch_hashtable.batch_update::<4, u64, _, _>(|d| d, |x, d| x + d) };
     for &s in sequence.iter() {
         batch.push(s, 1);

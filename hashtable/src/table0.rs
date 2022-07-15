@@ -4,9 +4,10 @@ use std::borrow::Borrow;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
-struct Slot<K, V> {
-    key: MaybeUninit<K>,
-    val: MaybeUninit<V>,
+pub(crate) struct Slot<K, V> {
+    _alignment: [u64; 0],
+    pub(crate) key: MaybeUninit<K>,
+    pub(crate) val: MaybeUninit<V>,
 }
 
 impl<K: Key, V> Slot<K, V> {
@@ -17,9 +18,9 @@ impl<K: Key, V> Slot<K, V> {
 }
 
 pub struct Table0<K: Key, V> {
-    slots: Box<[Slot<K, V>]>,
-    slot: Option<Box<Slot<K, V>>>,
-    len: usize,
+    pub(crate) slots: Box<[Slot<K, V>]>,
+    pub(crate) slot: Option<Box<Slot<K, V>>>,
+    pub(crate) len: usize,
 }
 
 impl<K: Key, V> Table0<K, V> {

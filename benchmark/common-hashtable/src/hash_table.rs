@@ -314,4 +314,8 @@ impl<Key: HashTableKeyable, Entity: HashTableEntity<Key>, Grower: HashTableGrowe
             }
         }
     }
+
+    pub fn capacity(&self) -> usize {
+        self.zero_entity.is_some() as usize + self.grower.max_size() as usize
+    }
 }

@@ -22,7 +22,7 @@ fn count_distinct_unsized() {
         }
     }
     let end = Instant::now();
-    println!("count_distinct_hashbrown = {:?}", end - start);
+    println!("time_hashbrown = {:?}", end - start);
     let start = Instant::now();
     let mut saha = UnsizedHashtable::<[u8], u64>::new();
     for s in sequence.iter() {
@@ -36,7 +36,7 @@ fn count_distinct_unsized() {
         }
     }
     let end = Instant::now();
-    println!("count_distinct_saha = {:?}", end - start);
+    println!("time_saha = {:?}", end - start);
     assert_eq!(hashbrown.len(), saha.len());
     let mut repeat = HashSet::new();
     for (key, value) in saha.iter() {

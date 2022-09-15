@@ -1,6 +1,7 @@
+use std::alloc::Allocator;
 use std::mem::MaybeUninit;
 
-static ALLKEYS: [[[u8; 2]; 256]; 256] = {
+pub(crate) static ALLKEYS: [[[u8; 2]; 256]; 256] = {
     let mut ans = [[[0u8; 2]; 256]; 256];
     let mut i = 0usize;
     while i < 256 {
@@ -19,15 +20,15 @@ pub(crate) struct Inner<V> {
     pub(crate) bits: [u64; 1024],
 }
 
-pub struct Table1<V> {
-    pub(crate) inner: Box<Inner<V>>,
+pub struct Table1<V, A: Allocator + Clone> {
+    pub(crate) inner: Box<Inner<V>, A>,
     pub(crate) len: usize,
 }
 
-impl<V> Table1<V> {
-    pub fn new() -> Self {
+impl<V, A: Allocator + Clone> Table1<V, A> {
+    pub fn new_in(allocator: A) -> Self {
         Self {
-            inner: unsafe { Box::<Inner<V>>::new_zeroed().assume_init() },
+            inner: unsafe { Box::<Inner<V>, A>::new_zeroed_in(allocator).assume_init() },
             len: 0,
         }
     }
@@ -73,33 +74,28 @@ impl<V> Table1<V> {
         }
     }
     pub fn iter(&self) -> impl Iterator<Item = (&[u8; 2], &V)> + '_ {
-        self.inner
-            .data
-            .iter()
-            .enumerate()
-            .map(|(x, group)| {
-                let mut bits = self.inner.bits[x];
-                std::iter::from_fn(move || {
-                    let y = bits.trailing_zeros();
-                    if y == u64::BITS {
-                        return None;
-                    }
-                    bits ^= 1 << y;
-                    let i = (x >> 2) as u8;
-                    let j = ((x & 3) << 6) as u8 | y as u8;
-                    let k = &ALLKEYS[i as usize][j as usize];
-                    let v = unsafe { group[y as usize].assume_init_ref() }.to_owned();
-                    Some((k, v))
-                })
+        self.inner.data.iter().enumerate().flat_map(|(x, group)| {
+            let mut bits = self.inner.bits[x];
+            std::iter::from_fn(move || {
+                let y = bits.trailing_zeros();
+                if y == u64::BITS {
+                    return None;
+                }
+                bits ^= 1 << y;
+                let i = (x >> 2) as u8;
+                let j = ((x & 3) << 6) as u8 | y as u8;
+                let k = &ALLKEYS[i as usize][j as usize];
+                let v = unsafe { group[y as usize].assume_init_ref() }.to_owned();
+                Some((k, v))
             })
-            .flatten()
+        })
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (&[u8; 2], &mut V)> + '_ {
         self.inner
             .data
             .iter_mut()
             .enumerate()
-            .map(|(x, group)| {
+            .flat_map(|(x, group)| {
                 let mut bits = self.inner.bits[x];
                 std::iter::from_fn(move || {
                     let y = bits.trailing_zeros();
@@ -114,11 +110,10 @@ impl<V> Table1<V> {
                     Some((k, v))
                 })
             })
-            .flatten()
     }
 }
 
-impl<V> Drop for Table1<V> {
+impl<V, A: Allocator + Clone> Drop for Table1<V, A> {
     fn drop(&mut self) {
         if std::mem::needs_drop::<V>() {
             self.iter_mut().for_each(|(_, v)| unsafe {
